@@ -1,6 +1,6 @@
 <?php
 
-/* ------------------------------------------------------
+/**------------------------------------------------------
  * New to ACL? Read the Zend documentation:
  *   http://framework.zend.com/manual/en/zend.acl.html
  * All their examples work with this lib
@@ -31,378 +31,453 @@
  * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
  * @license    http://framework.zend.com/license/new-bsd     New BSD License
  * @version    $Id: Acl.php 9417 2008-05-08 16:28:31Z darby $
+ *
+ *
+ * Took some ideas, but mostly the comments from Bonafide ACL by Woody Gilk.
+ *
+ * @package    Bonafide
+ * @category   Base
+ * @author     Woody Gilk <woody.gilk@kohanaframework.org>
+ * @copyright  (c) 2011 Woody Gilk
+ * @license    MIT
  */
 
-abstract class Acl_Core {
-	
-	protected $command = array();
+abstract class ACL_Core {
 
-	protected $_roles = array();
-	protected $_resources = array();
+	// Wildcard for all types
+	const WILDCARD = '*';
 
-	protected $_rules = array();
-	/* the $_rules array is structured in a way like this:
-	array(
-		'allResources' => array(
-			'allRoles' => array(
-				'allPrivileges' => array(
-					'allow'  => FALSE,
-					'assert' => null
-				),
-				'byPrivilegeId' => array()
-			),
-			'byRoleId' => array()
-		),
-		'byResourceId' => array()
-	);
-  */
+	/**
+	 * @var  array  Current role/resource/privilege being matched
+	 */
+	protected $command      = array();
 
-	// add role
-	public function add_role($role,$parents = NULL)
+	/**
+	 * @var  array  ACL roles
+	 */
+	protected $_roles       = array();
+
+	/**
+	 * @var  array  ACL resources
+	 */
+	protected $_resources   = array();
+
+	/**
+	 * @var  array  ACL permissions
+	 */
+	protected $_permissions = array();
+
+	/**
+	 * Add a new role.
+	 *
+	 *     // Add a "guest" role
+	 *     $acl->role('guest');
+	 *
+	 *     // Add a "member" role that inherits from "guest"
+	 *     $acl->role('member', 'guest');
+	 *
+	 *     // Add a "owner" role that inherits from "guest" and "member"
+	 *     $acl->role('owner', array('guest','member'));
+	 *
+	 * @param   string  role name
+	 * @param   mixed   role name or array of roles role inherits from
+	 * @return  ACL_Core
+	 */
+	public function add_role($role, $parents = NULL)
 	{
-		if ( $parents !== NULL && ! is_array($parents))
-		{
-			$parents = array($parents);
-		}
+		$role = $role instanceof Acl_Role_Interface
+			? $role->get_role_id()
+			: (string) $role;
 
-		$this->_roles[$role] = array(
-			'children' => array(),
-			'parents'  => $parents
-		);
-
-		if ( ! empty($parents))
+		if ( ! is_array($parents))
 		{
-			foreach ( $parents as $parent)
+			if ($parents === NULL)
 			{
-				$this->_roles[$parent]['children'][] = $role;
+				$parents = array();
+			}
+			else
+			{
+				$parents = array($parents);
 			}
 		}
+
+		$this->_roles[$role] = $parents;
+
+		return $this;
 	}
 
-	// check if role exists in ACL
-	public function has_role($role)
+	/**
+	 * Add a new resource.
+	 *
+	 *     // Add a "users" resource
+	 *     $acl->resource('users');
+	 *
+	 *     // Add a "news" resource
+	 *     $acl->resource('news');
+	 *
+	 *     // Add a "latest" resource with inherits from "news"
+	 *     $acl->resource('latest', 'news');
+	 *
+	 * @param   string  resource name
+	 * @param   mixed   single resource or array of resources resource inherits from
+	 * @return  ACL_Core
+	 */
+	public function add_resource($resource, $parents = NULL)
 	{
-		return $role !== NULL && isset($this->_roles[$role]);
-	}
+		$resource = $resource instanceof Acl_Resource_Interface
+			? $resource->get_resource_id()
+			: (string) $resource;
 
-	// add resource
-	public function add_resource($resource,$parent = NULL)
-	{
-		$this->_resources[$resource] = array(
-			'children' => array(),
-			'parent'   => $parent
-		);
-
-		if ( $parent !== NULL)
+		if ( ! is_array($parents))
 		{
-			$this->_resources[$parent]['children'][] = $resource;
+			if ( ! $parents)
+			{
+				$parents = array();
+			}
+			else
+			{
+				$parents = array($parents);
+			}
 		}
+
+		$this->_resources[$resource] = $parents;
+
+		return $this;
 	}
 
-	// check if resource exists in ACL
-	public function has_resource($resource)
+	/**
+	 * Get an array of role and all its parents.
+	 *
+	 *     // Get all roles for the 'member' role
+	 *     $roles = $acl->roles('member');
+	 *
+	 * @return  array
+	 */
+	public function roles($name)
 	{
-		return $resource !== NULL && isset($this->_resources[$resource]);
+		// Add this role to the set
+		$roles = array($name);
+
+		if ( isset($this->_roles[$name]))
+		{
+			foreach ( $this->_roles[$name] as $role)
+			{
+				// Inherit parents
+				$roles = array_merge($this->roles($role), $roles);
+			}
+		}
+
+		return $roles;
 	}
 
-	// add an allow rule
+	/**
+	 * Get an array of resource and all its parents.
+	 *
+	 *     // Get all resources for the 'news' resource
+	 *     $roles = $acl->resources('news');
+	 *
+	 * @return  array
+	 */
+	protected function resources($name)
+	{
+		// Add this resource to the set
+		$resources = array($name);
+
+		if ( isset($this->_resources[$name]))
+		{
+			foreach ( $this->_resources[$name] as $resource)
+			{
+				// Inherit parents
+				$resources = array_merge($this->resources($resource), $resources);
+			}
+		}
+
+		return $resources;
+	}
+
+	/**
+	 * Add "allow" access to a role.
+	 *
+	 *     // Allow "guest" to "view" the news
+	 *     $acl->allow('guest', 'news', 'view');
+	 *
+	 *     // Allow "member" to "comment" on "news"
+	 *     $acl->allow('member', 'news', 'comment');
+	 *
+	 *     // Allow "admin" to do anything
+	 *     $acl->allow('admin');
+	 *
+	 * @param   string   single role or array of roles
+	 * @param   mixed    single resource or array of resources
+	 * @param   mixed    single privilege or array of privileges
+	 * @param   object   assertion object
+	 * @return  ACL_Core
+	 */
 	public function allow($roles = NULL, $resources = NULL, $privileges = NULL, Acl_Assert_Interface $assertion = NULL)
 	{
-		$this->add_rule(TRUE,$roles,$resources,$privileges,$assertion);
+		return $this->add_rule(TRUE, $roles, $resources, $privileges, $assertion);
 	}
 
-	// add an deny rule
+	/**
+	 * Add "deny" access to a role.
+	 *
+	 *     // Deny "member" to "edit" on "news"
+	 *     $acl->deny('member', 'news', 'edit');
+	 *
+	 * [!!] By default, everything in an access control list is denied. It is
+	 * not necessary to explicitly deny privileges except when an inherited role
+	 * is allowed access.
+	 *
+	 * @param   string   single role or array of roles
+	 * @param   mixed    single resource or array of resources
+	 * @param   mixed    single privilege or array of privileges
+	 * @param   object   assertion object
+	 * @return  ACL_Core
+	 */
 	public function deny($roles = NULL, $resources = NULL, $privileges = NULL, Acl_Assert_Interface $assertion = NULL)
 	{
-		$this->add_rule(FALSE,$roles,$resources,$privileges,$assertion);
+		return $this->add_rule(FALSE, $roles, $resources, $privileges, $assertion);
 	}
 
-	// internal add rule method
-	private function add_rule($allow,$roles,$resources,$privileges,$assertion)
+	/**
+	 * Add a permission for a role, setting the resources, privileges, and
+	 * access type (allow, deny).
+	 *
+	 *     // Allow "admin" to access everything
+	 *     $acl->add_rule(TRUE, 'admin', NULL, NULL);
+	 *
+	 * [!!] It is not recommended to use this method directly. Instead, use
+	 * the [ACL_Core::allow] and [ACL_Core::deny] methods.
+	 *
+	 * @param   boolean  allow/deny
+	 * @param   mixed    single role or array of roles
+	 * @param   mixed    single resource or array of resources
+	 * @param   mixed    single privilege or array of privileges
+	 * @param   object   assertion object
+	 * @return  ACL_Core
+	 */
+	private function add_rule($allow, $roles, $resources, $privileges, $assertion)
 	{
-		// Normalize arguments (build arrays with IDs as string)
+		$entities = array('roles', 'resources', 'privileges');
 
-		//privileges
-		if ( $privileges !== NULL && !is_array($privileges)) 
+		foreach ($entities as $entity)
 		{
-			$privileges = array($privileges);
-		}
-
-		//resources
-		if ( $resources !== NULL)
-		{
-			if ( ! is_array($resources)) 
+			if ($$entity)
 			{
-				$resources = array($resources);
+				if ( ! is_array($$entity))
+				{
+					// Make the entity into an array
+					$$entity = array($$entity);
+				}
 			}
-			foreach ( $resources as &$resource)
+			else
 			{
-				if ( $resource instanceof Acl_Resource_Interface)
-				{
-					$resource = $resource->get_resource_id();
-				}
-				else
-				{
-					$resource = (string) $resource;
-				}
+				// Modify "any" entity.
+				$$entity = array(ACL::WILDCARD);
 			}
 		}
 
-		//roles
-		if ( $roles !== NULL)
-		{
-			if ( ! is_array($roles)) 
-			{
-				$roles = array($roles);
-			}
-
-			foreach ( $roles as &$role)
-			{
-				if ( $role instanceof Acl_Role_Interface)
-				{
-					$role = $role->get_role_id();
-				}
-				else
-				{
-					$role= (string) $role;
-				}
-			}
-		}
-
-		// start building rule, from bottom to top
-		$rule = array(
-			'allow'	 => $allow,
-			'assert' => $assertion
+		$allow = array(
+			'allow' => (bool) $allow
 		);
 
-		$rule = $privileges === NULL 
-			? array('allPrivileges' => $rule) 
-			: array('byPrivilegeId'=> array_fill_keys($privileges,$rule));
+		if ( $assertion)
+		{
+			$allow['assert'] = $assertion;
+		}
 
-		$rule = $roles === NULL 
-			? array('allRoles' => $rule) 
-			: array('byRoleId' => array_fill_keys($roles,$rule));
+		foreach ( $privileges as $privilege)
+		{
+			foreach ( $resources as $resource)
+			{
+				$resource = $resource instanceof Acl_Resource_Id
+					? $resource->get_resource_id()
+					: (string) $resource;
 
-		$rule = $resources === NULL 
-			? array('allResources' => $rule) 
-			: array('byResourceId' => array_fill_keys($resources,$rule));
+				foreach ( $roles as $role)
+				{
+					$role = $role instanceof Acl_Role_id
+						? $role->get_role_id()
+						: (string) $role;
 
-		// using arr::merge, this appends numeric keys, but replaces associative keys
-		$this->_rules = arr::merge($this->_rules,$rule);
+					$this->_permissions[$role][$resource][$privilege] = $allow; 
+				}
+			}
+		}
+
+		return $this;
 	}
 
+	/**
+	 * Check if a role is is allowed to a privilege on a resource.
+	 * Recursively checks all inherited roles and resources.
+	 *
+	 *     // Is "guest" allowed to "commment" the "news"?
+	 *     $acl->is_allowed('guest', 'news', 'comment');
+	 *
+	 *     // Is "member" allowed to "commment" the "news"?
+	 *     $acl->allowed('member', 'news', 'commment');
+	 *
+	 * @param   mixed    single role or array of roles
+	 * @param   string   resource name
+	 * @param   string   privilege name
+	 * @return  boolean  is allowed
+	 */
 	public function is_allowed($role = NULL, $resource = NULL, $privilege = NULL)
 	{
-		// save command data (in case of assertion, then the original objects are used)
-		$this->command = array
-		(
-			'role'      => $role,
-			'resource'  => $resource,
-			'privilege' => $privilege
-		);
+		$roles = is_array($role)
+			? $role
+			: array($role);
 
-		// normalize role
-		$roles = $role !== NULL 
-			? ($role instanceof Acl_Role_Interface ? $role->get_role_id() 
-			: (is_array($role) ? $role : (string) $role)) : NULL;
-
-		// make array (we support checking multiple roles at once, the first matching rule for any of the roles will be returned)
-		if( ! is_array($roles))
-		{
-			$roles = array($roles);
-		}
-
-		// normalize resource to a string value (or NULL)
-		$resource = $resource !== NULL
-			? ($resource instanceof Acl_Resource_Interface ? $resource->get_resource_id() : (string) $resource)
-			: NULL;
-
-		// resource unknown
-		if( $resource !== NULL && !$this->has_resource($resource))
-		{
-			return FALSE;
-		}
-
-		// loop for matching rule
-		do
-		{
-			if ( $rule = $this->_find_match_role($resource,$roles,$privilege))
-			{
-				return $rule['allow'];
-			}
-		}
-		// go level up in resources tree (child resources inherit rules from parent)
-		while ( $resource !== NULL AND ($resource = $this->_resources[$resource]['parent']));
-
-		return FALSE;
-	}
-
-	/*
-	 * Try to find a matching rule based for supplied role and its parents (if any)
-	 *
-	 * @param string $resource  resource id
-	 * @param array  $roles     array of role ids
-	 * @param string $privilege privilege
-	 * @return array|boolean a matching rule on success, false otherwise.
-	 */
-	private function _find_match_role($resource,$roles,$privilege)
-	{
 		foreach ( $roles as $role)
 		{
-			// role unknown - skip
-			if( $role !== NULL && !$this->has_role($role))
+			$this->command = array(
+				'role'      => $role,
+				'resource'  => $resource,
+				'privilege' => $privilege
+			);
+
+			if ( $role)
 			{
-				continue;
+				$role = $role instanceof Acl_Role_Interface
+					? $role->get_role_id()
+					: (string) $role;
 			}
 
-			// find match for this role
-			if ( $rule = $this->_find_match($this->_rules,$resource,$role,$privilege))
+			if ( $resource)
 			{
-				return $rule;
+				$resource = $resource instanceof Acl_Resource_Interface
+					? $resource->get_resource_id()
+					: (string) $resource;
 			}
-			
-			// try parents of role (starting at last added parent role)
-			if ( $role !== NULL && !empty($this->_roles[$role]['parents']))
+
+			$allowed = $this->match($role, $resource, $privilege);
+
+			if ( $allowed === TRUE && in_array(NULL, $this->command))
 			{
-				// let's see if any of the parent roles for this role return a valid rule
-				if ( $rule = $this->_find_match_role($resource,array_reverse($this->_roles[$role]['parents']),$privilege))
+				// wildcard active - for each wildcard in the query, take every possible value
+
+				// if role is wildcard, check all possible roles
+				$_roles = isset($role)
+					? array($role)
+					: array_keys($this->_roles);
+
+				// if resource is wildcard, check all possible resources
+				$_resources = isset($resource)
+					? array($resource)
+					: array_keys($this->_resources);
+
+				// if privilege is wildcard, check all possible privileges
+				if ( ! isset($privilege))
 				{
-					return $rule;
-				}
-			}
-		}
+					$_privileges = array();
 
-		return FALSE;
-	}
-	
-	/*
-	 * Try to find a matching rule based on the specific arguments
-	 *
-	 * @param array  $attach    the (remaining) rules array
-	 * @param string $resource  resource id
-	 * @param string $role      role id
-	 * @param string $privilege privilege
-	 * @return array|boolean a matching rule on success, false otherwise.
-	 */
-	private function _find_match(& $attach,$resource,$role,$privilege)
-	{
-		//echo Kohana::debug($resource,$role,$privilege);
-
-		// resource level
-		if($resource !== FALSE)
-		{
-			if ( isset($attach['byResourceId'][$resource]) && ($rule = $this->_find_match($attach['byResourceId'][$resource],FALSE,$role,$privilege)))
-			{
-				return $rule;
-			}
-			elseif ( isset($attach['allResources']))
-			{
-				$attach =& $attach['allResources'];
-			}
-			else
-			{
-				return FALSE;
-			}
-		}
-
-		// role level
-		if ( $role !== FALSE)
-		{
-			if ( isset($attach['byRoleId'][$role]) && ($rule = $this->_find_match($attach['byRoleId'][$role],FALSE,FALSE,$privilege)))
-			{
-				return $rule;
-			}
-			elseif ( isset($attach['allRoles']))
-			{
-				$attach =& $attach['allRoles'];
-			}
-			else
-			{
-				return FALSE;
-			}
-		}
-
-		if ( $privilege === NULL)
-		{
-			// No privilege specified = check for all privileges
-
-			if ( isset($attach['byPrivilegeId']))
-			{
-				foreach ( $attach['byPrivilegeId'] as $rule)
-				{
-					// If one specific privilege is denied, then not all privileges are allowed
-					if ( $this->_rule_runnable($rule,FALSE))
+					foreach ( $this->_permissions as $res)
 					{
-						return $rule;
+						foreach ( $res as $privs)
+						{
+							$_privileges = array_merge($_privileges, array_keys($privs));
+						}
+					}
+
+					// removes wildcard and duplicate values
+					$_privileges = array_diff($_privileges, array(ACL::WILDCARD));
+				}
+				else
+				{
+					$_privileges = array($privilege);
+				}
+
+				// if there are zero possible values for a wildcard, fallback to the wildcard itself
+				if ( count($_roles) === 0)      $_roles      = array(ACL::WILDCARD);
+				if ( count($_resources) === 0)  $_resources  = array(ACL::WILDCARD);
+				if ( count($_privileges) === 0) $_privileges = array(ACL::WILDCARD);
+
+				// look for a disallowed match
+				foreach ( $_roles as $_ro)
+				{
+					foreach ( $_resources as $_re)
+					{
+						foreach ( $_privileges as $_pr)
+						{
+							if ( ! $this->match($_ro, $_re, $_pr))
+							{
+								return FALSE;
+							}
+						}
 					}
 				}
 			}
 
-			// No specific privileges are denied, check all privileges rule
-			if ( ! empty($attach['allPrivileges']) && $this->_rule_runnable($attach['allPrivileges']))
+			if ( $allowed === TRUE)
 			{
-				return $attach['allPrivileges'];
-			}
-
-			// No rule found
-			else
-			{
-				return FALSE;
-			}
-		}
-		else
-		{
-			// Privilege defined - check if privilege specific rule is set and runnable
-			if ( isset($attach['byPrivilegeId'][$privilege]) && $this->_rule_runnable($attach['byPrivilegeId'][$privilege]))
-			{
-				return $attach['byPrivilegeId'][$privilege];
-			}
-
-			// No specific rule for privilege, fallback to allPrivileges rule
-			elseif ( ! empty($attach['allPrivileges']) && $this->_rule_runnable($attach['allPrivileges']))
-			{
-				return $attach['allPrivileges'];
-			}
-
-			// No rule found
-			else
-			{
-				return FALSE;
+				return $allowed;
 			}
 		}
 
-		// never reached
 		return FALSE;
-
 	}
 
-	/*
-	 * Verifies if rule can be applied to specified arguments
+	/**
+	 * Check if a role is is allowed to a privilege on a resource.
+	 * Recursively checks all inherited roles and resources.
 	 *
-	 * @param  array   $rule  the rule
-	 * @param  boolean $allow verify if rule is allowing/denying
-	 * @return boolean rule can be applied to arguments
+	 * @param   mixed    role name
+	 * @param   string   resource name
+	 * @param   string   privilege name
+	 * @return  boolean  is allowed
 	 */
-	private function _rule_runnable($rule,$allow = NULL)	
+	protected function match($role, $resource, $privilege)
 	{
-		if ( $allow !== NULL)
+		// default
+		$roles = $resources = $privileges = array(ACL::WILDCARD);
+
+		if ( $role)
 		{
-			if ( $rule['allow'] !== $allow)
+			$roles = array_merge($roles, $this->roles($role));
+		}
+
+		if ( $resource)
+		{
+			$resources = array_merge($resources, $this->resources($resource));
+		}
+
+		if ( $privilege)
+		{
+			$privileges[] = $privilege;
+		}
+
+		$allowed    = NULL;
+		$roles      = array_reverse($roles);
+		$resources  = array_reverse($resources);
+		$privileges = array_reverse($privileges);
+
+		// find highest matching permission - walk through from most specific to most generic (wildcards)
+		foreach ( $roles as $roid => $_role)
+		{
+			foreach ( $resources as $reid => $_resource)
 			{
-				return FALSE;
+				foreach ( $privileges as $prid => $_privilege)
+				{
+					if ( isset($this->_permissions[$_role][$_resource][$_privilege]))
+					{
+						$match = $this->_permissions[$_role][$_resource][$_privilege];
+
+						if ( ! isset($match['assert']) || $match['assert']->assert($this, $this->command['role'], $this->command['resource'], $this->command['privilege']))
+						{
+							$allowed = $match['allow'];
+							break 3;
+						}
+					}
+				}
 			}
 		}
 
-		if ( isset($rule['assert']))
-		{
-			return $rule['assert']->assert($this,$this->command['role'],$this->command['resource'],$this->command['privilege']);
-		}
-
-		return TRUE;
+		return $allowed === TRUE;
 	}
 
 	public function __sleep()
 	{
-		return array('_roles','_resources','_rules'); // no need to save the current command ($this->command)
+		return array('_roles','_resources','_permissions'); // no need to save the current command ($this->command)
 	}
 }
