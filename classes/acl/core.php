@@ -344,6 +344,11 @@ abstract class ACL_Core {
 					: (string) $role;
 			}
 
+			// create another role array because get_role_id() sometimes returns an array
+			$role_array = is_array($role)
+				? $role
+				: array($role);
+
 			if ( $resource)
 			{
 				$resource = $resource instanceof Acl_Resource_Interface
@@ -351,67 +356,70 @@ abstract class ACL_Core {
 					: (string) $resource;
 			}
 
-			$allowed = $this->match($role, $resource, $privilege);
-
-			if ( $allowed === TRUE && in_array(NULL, $this->command))
+			foreach ( $role_array as $role)
 			{
-				// wildcard active - for each wildcard in the query, take every possible value
+				$allowed = $this->match($role, $resource, $privilege);
 
-				// if role is wildcard, check all possible roles
-				$_roles = isset($role)
-					? array($role)
-					: array_keys($this->_roles);
-
-				// if resource is wildcard, check all possible resources
-				$_resources = isset($resource)
-					? array($resource)
-					: array_keys($this->_resources);
-
-				// if privilege is wildcard, check all possible privileges
-				if ( ! isset($privilege))
+				if ( $allowed === TRUE && in_array(NULL, $this->command))
 				{
-					$_privileges = array();
-
-					foreach ( $this->_permissions as $res)
+					// wildcard active - for each wildcard in the query, take every possible value
+	
+					// if role is wildcard, check all possible roles
+					$_roles = isset($role)
+						? array($role)
+						: array_keys($this->_roles);
+	
+					// if resource is wildcard, check all possible resources
+					$_resources = isset($resource)
+						? array($resource)
+						: array_keys($this->_resources);
+	
+					// if privilege is wildcard, check all possible privileges
+					if ( ! isset($privilege))
 					{
-						foreach ( $res as $privs)
+						$_privileges = array();
+	
+						foreach ( $this->_permissions as $res)
 						{
-							$_privileges = array_merge($_privileges, array_keys($privs));
-						}
-					}
-
-					// removes wildcard and duplicate values
-					$_privileges = array_diff($_privileges, array(ACL::WILDCARD));
-				}
-				else
-				{
-					$_privileges = array($privilege);
-				}
-
-				// if there are zero possible values for a wildcard, fallback to the wildcard itself
-				if ( count($_roles) === 0)      $_roles      = array(ACL::WILDCARD);
-				if ( count($_resources) === 0)  $_resources  = array(ACL::WILDCARD);
-				if ( count($_privileges) === 0) $_privileges = array(ACL::WILDCARD);
-
-				// look for a disallowed match
-				foreach ( $_roles as $_ro)
-				{
-					foreach ( $_resources as $_re)
-					{
-						foreach ( $_privileges as $_pr)
-						{
-							if ( ! $this->match($_ro, $_re, $_pr))
+							foreach ( $res as $privs)
 							{
-								return FALSE;
+								$_privileges = array_merge($_privileges, array_keys($privs));
+							}
+						}
+	
+						// removes wildcard and duplicate values
+						$_privileges = array_diff($_privileges, array(ACL::WILDCARD));
+					}
+					else
+					{
+						$_privileges = array($privilege);
+					}
+	
+					// if there are zero possible values for a wildcard, fallback to the wildcard itself
+					if ( count($_roles) === 0)      $_roles      = array(ACL::WILDCARD);
+					if ( count($_resources) === 0)  $_resources  = array(ACL::WILDCARD);
+					if ( count($_privileges) === 0) $_privileges = array(ACL::WILDCARD);
+	
+					// look for a disallowed match
+					foreach ( $_roles as $_ro)
+					{
+						foreach ( $_resources as $_re)
+						{
+							foreach ( $_privileges as $_pr)
+							{
+								if ( ! $this->match($_ro, $_re, $_pr))
+								{
+									return FALSE;
+								}
 							}
 						}
 					}
 				}
-			}
 
-			if ( $allowed === TRUE)
-			{
-				return $allowed;
+				if ( $allowed === TRUE)
+				{
+					return $allowed;
+				}
 			}
 		}
 
