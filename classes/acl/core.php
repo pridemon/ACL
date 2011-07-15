@@ -290,13 +290,13 @@ abstract class ACL_Core {
 		{
 			foreach ( $resources as $resource)
 			{
-				$resource = $resource instanceof Acl_Resource_Id
+				$resource = $resource instanceof Acl_Resource_Interface
 					? $resource->get_resource_id()
 					: (string) $resource;
 
 				foreach ( $roles as $role)
 				{
-					$role = $role instanceof Acl_Role_id
+					$role = $role instanceof Acl_Role_Interface
 						? $role->get_role_id()
 						: (string) $role;
 
