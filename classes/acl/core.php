@@ -42,7 +42,7 @@
  * @license    MIT
  */
 
-abstract class ACL_Core {
+abstract class Acl_Core {
 
 	// Wildcard for all types
 	const WILDCARD = '*';
